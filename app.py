@@ -11,7 +11,7 @@ print(f"Clave de API de Gemini obtenida: {'Sí' if google_api_key else 'No'}")
 if google_api_key:
     genai.configure(api_key=google_api_key)
     try:
-        model_gemini = genai.GenerativeModel('gemini-1.5-flash') # O 'gemini-pro-vision' si necesitas multimodalidad
+        model_gemini = genai.GenerativeModel('gemini-1.5-flash') # O el modelo que prefieras
         print("Modelo Gemini inicializado correctamente.")
     except Exception as e:
         model_gemini = None
@@ -29,23 +29,17 @@ def process_message():
     print(f"Mensaje recibido en /process_message: '{message_text}', Chat ID: {chat_id}")
 
     if message_text and model_gemini:
-        if message_text.lower().startswith("/gemini"):
-            prompt_gemini = message_text[len("/gemini"):].strip()
-            print(f"Prompt enviado a Gemini: '{prompt_gemini}'")
-            try:
-                response_gemini = model_gemini.generate_content(prompt_gemini)
-                print(f"Respuesta cruda de Gemini: {response_gemini}")
-                response_text = response_gemini.text
-                print(f"Texto de la respuesta de Gemini: '{response_text}'")
-                return jsonify({'response': response_text, 'chatId': chat_id})
-            except Exception as e:
-                error_message = f"Error al llamar a Gemini: {e}"
-                print(error_message)
-                return jsonify({'error': error_message, 'chatId': chat_id})
-        else:
-            response = f"¡Hola desde Python! Has dicho: {message_text}"
-            print(f"Respuesta básica: '{response}'")
-            return jsonify({'response': response, 'chatId': chat_id})
+        print(f"Prompt enviado a Gemini: '{message_text}'")
+        try:
+            response_gemini = model_gemini.generate_content(message_text)
+            print(f"Respuesta cruda de Gemini: {response_gemini}")
+            response_text = response_gemini.text
+            print(f"Texto de la respuesta de Gemini: '{response_text}'")
+            return jsonify({'response': response_text, 'chatId': chat_id})
+        except Exception as e:
+            error_message = f"Error al llamar a Gemini: {e}"
+            print(error_message)
+            return jsonify({'error': error_message, 'chatId': chat_id})
     elif not message_text:
         error_message = "No se proporcionó ningún mensaje."
         print(error_message)
