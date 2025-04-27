@@ -1,2 +1,5 @@
 Flask
+requests
 google-generativeai
+whisper
+yt-dlp
