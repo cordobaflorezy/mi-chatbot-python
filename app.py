@@ -11,7 +11,7 @@ print(f"Clave de API de Gemini obtenida: {'Sí' if google_api_key else 'No'}")
 if google_api_key:
     genai.configure(api_key=google_api_key)
     try:
-        model_gemini = genai.GenerativeModel('gemini-pro') # O 'gemini-pro-vision' si necesitas multimodalidad
+        model_gemini = genai.GenerativeModel('gemini-pro-vision') # O 'gemini-pro-vision' si necesitas multimodalidad
         print("Modelo Gemini inicializado correctamente.")
     except Exception as e:
         model_gemini = None
