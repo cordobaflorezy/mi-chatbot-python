@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 import os
 import google.generativeai as genai
+import subprocess  # Para ejecutar comandos de línea
+import tempfile   # Para archivos temporales
 
 app = Flask(__name__)
 
@@ -19,6 +21,59 @@ if google_api_key:
 else:
     model_gemini = None
     print("Error: La variable de entorno GOOGLE_API_KEY no está configurada.")
+
+def descargar_audio(video_url, output_file):
+    try:
+        command = [
+            'yt-dlp',
+            '-x',  # Extraer solo el audio
+            '--audio-format', 'mp3',
+            '-o', output_file,
+            video_url
+        ]
+        subprocess.run(command, check=True, capture_output=True)
+        return True, output_file
+    except subprocess.CalledProcessError as e:
+        return False, f"Error al descargar el audio: {e.stderr.decode('utf-8')}"
+    except FileNotFoundError:
+        return False, "Error: yt-dlp no se encontró. Asegúrate de que esté instalado."
+
+def transcribir_audio(audio_file):
+    try:
+        model = whisper.load_model("large")  # Puedes cambiar a "medium" o "large"
+        result = model.transcribe(audio_file)
+        return True, result["text"]
+    except Exception as e:
+        return False, f"Error al transcribir el audio: {e}"
+    except FileNotFoundError:
+        return False, "Error: El modelo de Whisper no se encontró. Asegúrate de que esté instalado."
+
+@app.route('/process_youtube', methods=['POST'])
+def process_youtube():
+    data = request.get_json()
+    video_url = data.get('youtube_url')
+    chat_id = data.get('chatId')
+
+    if not video_url:
+        return jsonify({'error': 'No se proporcionó la URL de YouTube', 'chatId': chat_id}), 400
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as tmp_audio_file:
+        audio_file_path = tmp_audio_file.name
+        print(f"Descargando audio de: {video_url} a {audio_file_path}")
+        descarga_exitosa, descarga_resultado = descargar_audio(video_url, audio_file_path)
+
+        if descarga_exitosa:
+            print(f"Audio descargado exitosamente. Transcribiendo...")
+            transcripcion_exitosa, transcripcion_resultado = transcribir_audio(audio_file_path)
+            if transcripcion_exitosa:
+                print(f"Transcripción completada.")
+                return jsonify({'transcription': transcripcion_resultado, 'chatId': chat_id}), 200
+            else:
+                print(f"Error en la transcripción: {transcripcion_resultado}")
+                return jsonify({'error': f'Error en la transcripción: {transcripcion_resultado}', 'chatId': chat_id}), 500
+        else:
+            print(f"Error en la descarga del audio: {descarga_resultado}")
+            return jsonify({'error': f'Error en la descarga del audio: {descarga_resultado}', 'chatId': chat_id}), 500
 
 @app.route('/process_message', methods=['POST'])
 def process_message():
@@ -79,4 +134,4 @@ def ia_route():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True) # Añadí debug=True para desarrollo
