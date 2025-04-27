@@ -7,13 +7,18 @@ app = Flask(__name__)
 # --- Configuración de Gemini desde variable de entorno ---
 google_api_key = os.environ.get("GOOGLE_API_KEY")
 print(f"Clave de API de Gemini obtenida: {'Sí' if google_api_key else 'No'}")
-genai.configure(api_key=google_api_key)
-try:
-    model_gemini = genai.GenerativeModel('gemini-pro') # O 'gemini-pro-vision' si necesitas multimodalidad
-    print("Modelo Gemini inicializado correctamente.")
-except Exception as e:
-    print(f"Error al inicializar el modelo Gemini: {e}")
+
+if google_api_key:
+    genai.configure(api_key=google_api_key)
+    try:
+        model_gemini = genai.GenerativeModel('gemini-pro') # O 'gemini-pro-vision' si necesitas multimodalidad
+        print("Modelo Gemini inicializado correctamente.")
+    except Exception as e:
+        model_gemini = None
+        print(f"Error al inicializar el modelo Gemini: {e}")
+else:
     model_gemini = None
+    print("Error: La variable de entorno GOOGLE_API_KEY no está configurada.")
 
 @app.route('/process_message', methods=['POST'])
 def process_message():
@@ -27,7 +32,6 @@ def process_message():
         if message_text.lower().startswith("/gemini"):
             prompt_gemini = message_text[len("/gemini"):].strip()
             print(f"Prompt enviado a Gemini: '{prompt_gemini}'")
-            print(f"Prompt enviado a Gemini (repr): {repr(prompt_gemini)}")
             try:
                 response_gemini = model_gemini.generate_content(prompt_gemini)
                 print(f"Respuesta cruda de Gemini: {response_gemini}")
@@ -35,8 +39,9 @@ def process_message():
                 print(f"Texto de la respuesta de Gemini: '{response_text}'")
                 return jsonify({'response': response_text, 'chatId': chat_id})
             except Exception as e:
-                print(f"Error al llamar a Gemini: {e}")
-                return jsonify({'error': str(e), 'chatId': chat_id})
+                error_message = f"Error al llamar a Gemini: {e}"
+                print(error_message)
+                return jsonify({'error': error_message, 'chatId': chat_id})
         else:
             response = f"¡Hola desde Python! Has dicho: {message_text}"
             print(f"Respuesta básica: '{response}'")
@@ -46,7 +51,7 @@ def process_message():
         print(error_message)
         return jsonify({'error': error_message, 'chatId': chat_id})
     else:
-        error_message = "El modelo Gemini no está inicializado."
+        error_message = "El modelo Gemini no está inicializado. Verifica la configuración de la clave de API."
         print(error_message)
         return jsonify({'error': error_message, 'chatId': chat_id})
 
@@ -66,14 +71,15 @@ def ia_route():
             print(f"Texto de la respuesta de Gemini (/ia): '{response_text}'")
             return jsonify({'response': response_text, 'chatId': chat_id})
         except Exception as e:
-            print(f"Error al llamar a Gemini (/ia): {e}")
-            return jsonify({'error': str(e), 'chatId': chat_id})
+            error_message = f"Error al llamar a Gemini (/ia): {e}"
+            print(error_message)
+            return jsonify({'error': error_message, 'chatId': chat_id})
     elif not message_text:
         error_message = "No se proporcionó ningún mensaje en /ia."
         print(error_message)
         return jsonify({'error': error_message, 'chatId': chat_id})
     else:
-        error_message = "El modelo Gemini no está inicializado (/ia)."
+        error_message = "El modelo Gemini no está inicializado (/ia). Verifica la configuración de la clave de API."
         print(error_message)
         return jsonify({'error': error_message, 'chatId': chat_id})
 
