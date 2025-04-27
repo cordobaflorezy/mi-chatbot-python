@@ -1,1 +1,3 @@
 Flask
+langchain  # Si la estás usando
+google-generativeai
