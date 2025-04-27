@@ -25,14 +25,6 @@ else:
     model_gemini = None
     print("Error: La variable de entorno GOOGLE_API_KEY no está configurada.")
 
-# --- Configuración de GitHub desde variable de entorno ---
-github_token = os.environ.get("GITHUB_TOKEN")
-github_repo = os.environ.get("GITHUB_REPO")
-github_username = os.environ.get("GITHUB_USERNAME")
-print(f"Token de GitHub obtenido: {'Sí' if github_token else 'No'}")
-print(f"Repositorio de GitHub: {github_repo}")
-print(f"Usuario de GitHub: {github_username}")
-
 # --- Funciones ---
 def descargar_audio(video_url, output_file):
     try:
@@ -60,55 +52,6 @@ def transcribir_audio(audio_file):
     except FileNotFoundError:
         return False, "Error: El modelo de Whisper no se encontró. Asegúrate de que esté instalado."
 
-def generar_slug(title):
-    return title.lower().replace(' ', '-')
-
-def generar_extracto(text, length=150):
-    return text[:length] + "..."
-
-def generar_html(title, author, content):
-    return f"<!DOCTYPE html>\n<html>\n<head><title>{title}</title></head>\n<body><h1>{title}</h1><div>{content.replace('\\n', '<br>')}</div></body>\n</html>"
-
-def get_file_from_github(path):
-    import requests
-    headers = {'Authorization': f'token {github_token}'}
-    url = f'https://api.github.com/repos/{github_username}/{github_repo}/contents/{path}'
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    content = response.json().get('content')
-    if content:
-        import base64
-        return base64.b64decode(content).decode('utf-8')
-    return '[]'
-
-def upload_file_to_github(path, content, message):
-    import requests
-    headers = {'Authorization': f'token {github_token}'}
-    url = f'https://api.github.com/repos/{github_username}/{github_repo}/contents/{path}'
-    data = {
-        'message': message,
-        'content': content.encode('utf-8').decode('unicode_escape').encode('utf-8').decode('base64').decode('utf-8').encode('base64').decode('utf-8'),
-        'sha': None  # GitHub automáticamente detecta si el archivo existe
-    }
-    response = requests.put(url, headers=headers, json=data)
-    response.raise_for_status()
-    return response.json().get('commit').get('html_url')
-
-def determinar_categoria(texto):
-    if not model_gemini:
-        return "general"  # Default si Gemini no está inicializado
-    prompt = f"Determina la categoría principal de este texto (gana, salud, home): '{texto}'"
-    try:
-        response = model_gemini.generate_content(prompt)
-        categoria = response.text.strip().lower()
-        if categoria in ["gana", "salud", "home"]:
-            return categoria
-        else:
-            return "general"
-    except Exception as e:
-        print(f"Error al determinar la categoría con Gemini: {e}")
-        return "general"
-
 # --- Endpoints ---
 @app.route('/process_youtube', methods=['POST'])
 def process_youtube_route():
@@ -129,59 +72,7 @@ def process_youtube_route():
             transcripcion_exitosa, transcripcion_resultado = transcribir_audio(audio_file_path)
             if transcripcion_exitosa:
                 print(f"Transcripción completada.")
-                # Llamar a Gemini para corrección y creación del post
-                prompt_ia = f"Corrige la gramática, ortografía y expande este texto para crear un post de blog coherente:\n\n{transcripcion_resultado}"
-                try:
-                    response_ia = model_gemini.generate_content(prompt_ia)
-                    contenido_post = response_ia.text.strip()
-
-                    # Generar metadatos
-                    titulo_base = contenido_post.split('\n')[0] if contenido_post.split('\n') else "Nuevo Artículo"
-                    titulo = titulo_base.replace('#', '').strip()
-                    slug = generar_slug(titulo)
-                    autor = "IA" # Puedes hacerlo dinámico si lo extraes de alguna forma
-                    fecha = datetime.now().strftime('%Y-%m-%d')
-                    extracto = generar_extracto(contenido_post)
-                    thumbnail = f"/posts/{slug}/thumbnail.jpg" # Placeholder
-                    html_path = f"/posts/{slug}/index.html"
-
-                    # Determinar categoría
-                    categoria = determinar_categoria(titulo + " " + extracto)
-                    json_path = f"public/{categoria}.json"
-
-                    # Generar HTML
-                    html_content = generar_html(titulo, autor, contenido_post)
-                    html_file_path_github = f"public/posts/{slug}/index.html"
-                    upload_file_to_github(html_file_path_github, html_content, f"Publicar artículo: {titulo}")
-                    print(f"Archivo HTML subido a GitHub: {html_file_path_github}")
-
-                    # Actualizar JSON
-                    existing_json_str = get_file_from_github(json_path)
-                    try:
-                        existing_data = json.loads(existing_json_str)
-                        if not isinstance(existing_data, list):
-                            existing_data = []
-                    except json.JSONDecodeError:
-                        existing_data = []
-
-                    new_post_data = {
-                        "slug": slug,
-                        "title": titulo,
-                        "author": autor,
-                        "date": fecha,
-                        "excerpt": extracto,
-                        "thumbnail": thumbnail,
-                        "htmlPath": html_path
-                    }
-                    existing_data.append(new_post_data)
-                    upload_file_to_github(json_path, json.dumps(existing_data, indent=2), f"Actualizar {categoria}.json con: {titulo}")
-                    print(f"Archivo JSON actualizado en GitHub: {json_path}")
-
-                    return jsonify({'message': f'Artículo "{titulo}" publicado exitosamente', 'chatId': chat_id}), 200
-
-                except Exception as e_ia:
-                    return jsonify({'error': f'Error al procesar el texto con la IA: {e_ia}', 'chatId': chat_id}), 500
-
+                return jsonify({'transcription': transcripcion_resultado, 'chatId': chat_id}), 200
             else:
                 print(f"Error en la transcripción: {transcripcion_resultado}")
                 return jsonify({'error': f'Error en la transcripción: {transcripcion_resultado}', 'chatId': chat_id}), 500
