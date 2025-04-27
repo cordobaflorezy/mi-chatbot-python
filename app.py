@@ -67,29 +67,7 @@ def generar_extracto(text, length=150):
     return text[:length] + "..."
 
 def generar_html(title, author, content):
-    html_content = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title}</title>
-    <style>
-        body {{ font-family: sans-serif; line-height: 1.6; color: #333; margin: 20px; }}
-        h1, h2, h3 {{ color: #0056b3; }}
-        p {{ margin-bottom: 1em; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>{title}</h1>
-        <p><strong>Por {author}</strong></p>
-        <div>
-            {content.replace('\\n', '<br>')}
-        </div>
-    </div>
-</body>
-</html>"""
-    return html_content
+    return f"<!DOCTYPE html>\n<html>\n<head><title>{title}</title></head>\n<body><h1>{title}</h1><div>{content.replace('\\n', '<br>')}</div></body>\n</html>"
 
 def get_file_from_github(path):
     import requests
