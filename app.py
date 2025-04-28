@@ -39,10 +39,11 @@ def chatbot_route():
         message_text = data.get('text', '').strip()
         chat_id = data.get('chatId')
 
+        print(f"Received message text: '{message_text}'")  # Debugging line
+
         if not message_text:
             return jsonify({'error': 'Empty message', 'chatId': chat_id, 'success': False}), 400
 
-        # Procesamiento de comandos de YouTube
         if message_text.lower().startswith('/process_youtube'):
             video_url = extract_youtube_url(message_text)
             if not video_url:
@@ -58,7 +59,6 @@ def chatbot_route():
                 'success': True
             }), 200
 
-        # Resto de la lógica para otros comandos...
         return jsonify({'message': 'Command not recognized', 'chatId': chat_id, 'success': False}), 200
 
     except Exception as e:
