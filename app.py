@@ -9,7 +9,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# --- Configuración de Gemini desde variable de entorno ---
+# --- Configuración de Gemini ---
 google_api_key = os.environ.get("GOOGLE_API_KEY")
 print(f"Clave de API de Gemini obtenida: {'Sí' if google_api_key else 'No'}")
 
@@ -25,32 +25,43 @@ else:
     model_gemini = None
     print("Error: La variable de entorno GOOGLE_API_KEY no está configurada.")
 
-# --- Funciones ---
+# --- Funciones auxiliares ---
 def descargar_audio(video_url, output_file):
     try:
+        if not video_url.startswith(('http://', 'https://')):
+            return False, "URL debe comenzar con http:// o https://"
+
         command = [
             'yt-dlp',
             '-x',
             '--audio-format', 'mp3',
+            '--no-warnings',
             '-o', output_file,
             video_url
         ]
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        
+        result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            return False, f"Error en yt-dlp: {result.stderr}"
+            
         return True, output_file
+    except subprocess.TimeoutExpired:
+        return False, "Tiempo de espera agotado al descargar (5 minutos)"
     except subprocess.CalledProcessError as e:
-        return False, f"Error al descargar el audio: {e.stderr}"
-    except FileNotFoundError:
-        return False, "Error: yt-dlp no se encontró. Asegúrate de que esté instalado."
+        return False, f"Error en yt-dlp (code {e.returncode}): {e.stderr}"
+    except Exception as e:
+        return False, f"Error inesperado: {str(e)}"
 
 def transcribir_audio(audio_file):
     try:
-        model = whisper.load_model("base")  # Cambiado a 'base' para menos requisitos de hardware
+        model = whisper.load_model("base")
         result = model.transcribe(audio_file)
         return True, result["text"]
     except Exception as e:
-        return False, f"Error al transcribir el audio: {e}"
+        return False, f"Error al transcribir: {str(e)}"
 
-# --- Endpoints ---
+# --- Endpoints principales ---
 @app.route('/process_youtube', methods=['POST'])
 def process_youtube_route():
     try:
@@ -62,104 +73,122 @@ def process_youtube_route():
         chat_id = data.get('chatId')
 
         if not video_url:
-            return jsonify({'error': 'No se proporcionó la URL de YouTube', 'chatId': chat_id, 'success': False}), 400
+            return jsonify({'error': 'No se proporcionó URL', 'chatId': chat_id, 'success': False}), 400
 
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as tmp_audio_file:
             audio_file_path = tmp_audio_file.name
-            print(f"Descargando audio de: {video_url}")
-            descarga_exitosa, descarga_resultado = descargar_audio(video_url, audio_file_path)
-
-            if descarga_exitosa:
-                print("Audio descargado exitosamente. Transcribiendo...")
-                transcripcion_exitosa, transcripcion_resultado = transcribir_audio(audio_file_path)
-                if transcripcion_exitosa:
-                    print("Transcripción completada.")
-                    return jsonify({
-                        'transcription': transcripcion_resultado, 
-                        'chatId': chat_id,
-                        'success': True
-                    }), 200
-                else:
-                    print(f"Error en la transcripción: {transcripcion_resultado}")
-                    return jsonify({
-                        'error': f'Error en la transcripción: {transcripcion_resultado}',
-                        'chatId': chat_id,
-                        'success': False
-                    }), 500
-            else:
-                print(f"Error en la descarga del audio: {descarga_resultado}")
+            
+            # Descargar audio
+            success, result = descargar_audio(video_url, audio_file_path)
+            if not success:
                 return jsonify({
-                    'error': f'Error en la descarga del audio: {descarga_resultado}',
+                    'error': f'Error en descarga: {result}',
                     'chatId': chat_id,
                     'success': False
                 }), 500
+
+            # Transcribir audio
+            success, transcription = transcribir_audio(audio_file_path)
+            if not success:
+                return jsonify({
+                    'error': f'Error en transcripción: {transcription}',
+                    'chatId': chat_id,
+                    'success': False
+                }), 500
+
+            return jsonify({
+                'transcription': transcription,
+                'chatId': chat_id,
+                'success': True
+            }), 200
+
     except Exception as e:
-        print(f"Error inesperado en /process_youtube: {str(e)}")
+        print(f"Error inesperado: {str(e)}")
         return jsonify({
-            'error': f'Error interno del servidor: {str(e)}',
+            'error': f'Error interno: {str(e)}',
             'success': False
         }), 500
 
 @app.route('/chatbot', methods=['POST'])
 def chatbot_route():
-    """Endpoint específico para integración con Telegram"""
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No se proporcionaron datos JSON', 'success': False}), 400
             
-        message_text = data.get('text', '')
+        message_text = data.get('text', '').strip()
         chat_id = data.get('chatId')
 
         if not message_text:
-            return jsonify({'error': 'No se proporcionó texto', 'chatId': chat_id, 'success': False}), 400
+            return jsonify({'error': 'No se proporcionó mensaje', 'chatId': chat_id, 'success': False}), 400
 
-        # Manejo de comandos de Telegram
+        # Procesamiento de comandos
         if message_text.startswith('/process_youtube'):
-            # Extraer la URL del comando
-            parts = message_text.split()
-            if len(parts) < 2:
+            # Extraer URL (admite con o sin espacio)
+            if ' ' in message_text:
+                video_url = message_text.split(' ')[1]
+            else:
+                video_url = message_text[len('/process_youtube'):]
+            
+            video_url = video_url.strip()
+            
+            if not video_url:
                 return jsonify({
-                    'error': 'Debes proporcionar una URL de YouTube después del comando',
+                    'error': 'Formato incorrecto. Usa: /process_youtube<URL> o /process_youtube <URL>',
                     'chatId': chat_id,
                     'success': False
                 }), 400
-                
-            video_url = parts[1]
-            # Reutilizamos la función process_youtube_route
+
+            if not video_url.startswith(('http://', 'https://')):
+                return jsonify({
+                    'error': 'URL inválida. Debe comenzar con http:// o https://',
+                    'chatId': chat_id,
+                    'success': False
+                }), 400
+
+            # Procesar con el endpoint existente
+            request._cached_data = json.dumps({'youtube_url': video_url, 'chatId': chat_id})
             return process_youtube_route()
             
+        # Chat normal con Gemini    
         elif model_gemini:
             try:
-                response_gemini = model_gemini.generate_content(message_text)
-                response_text = response_gemini.text
+                response = model_gemini.generate_content(message_text)
                 return jsonify({
-                    'response': response_text, 
+                    'response': response.text,
                     'chatId': chat_id,
                     'success': True
                 }), 200
             except Exception as e:
-                error_message = f"Error al generar respuesta: {str(e)}"
-                print(error_message)
                 return jsonify({
-                    'error': error_message, 
+                    'error': f'Error en Gemini: {str(e)}',
                     'chatId': chat_id,
                     'success': False
                 }), 500
         else:
-            error_message = "El modelo Gemini no está disponible"
-            print(error_message)
             return jsonify({
-                'error': error_message, 
+                'error': 'Servicio de IA no disponible',
                 'chatId': chat_id,
                 'success': False
             }), 503
+
     except Exception as e:
-        print(f"Error inesperado en /chatbot: {str(e)}")
+        print(f"Error en chatbot: {str(e)}")
         return jsonify({
-            'error': f'Error interno del servidor: {str(e)}',
+            'error': f'Error interno: {str(e)}',
             'success': False
         }), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        'status': 'OK',
+        'services': {
+            'whisper': True,
+            'gemini': model_gemini is not None,
+            'yt-dlp': True
+        }
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
