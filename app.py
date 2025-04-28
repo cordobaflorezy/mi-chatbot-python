@@ -5,29 +5,22 @@ from urllib.parse import urlparse
 
 app = Flask(__name__)
 
-def extract_youtube_url(command_text):
+def extract_youtube_url_simple(text):
     """
-    Extrae la URL de YouTube del comando de Telegram de manera robusta
+    Intenta extraer una URL de YouTube de un texto.
     """
-    # Elimina el comando y cualquier espacio sobrante
-    url_part = re.sub(r'^/process_youtube\s*', '', command_text).strip()
+    url_pattern = re.compile(r'http[s]?://(?:www\.)?youtube\.com/(?:watch\?v=|shorts/)([a-zA-Z0-9_-]+)')
+    match = url_pattern.search(text)
+    if match:
+        return match.group(0)
 
-    # Si la URL no comienza con http(s), intenta corregirla
-    if not url_part.startswith(('http://', 'https://')):
-        if 'youtube.com' in url_part or 'youtu.be' in url_part:
-            url_part = 'https://' + url_part.lstrip(':/')
-        else:
-            return None
-
-    # Validación adicional de la URL
-    try:
-        parsed = urlparse(url_part)
-        if not all([parsed.scheme, parsed.netloc]):
-            return None
-        # Removed the specific googleusercontent check
-        return url_part
-    except:
-        return None
+    generic_url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+    generic_match = generic_url_pattern.search(text)
+    if generic_match:
+        parsed_url = urlparse(generic_match.group(0))
+        if 'youtube.com' in parsed_url.netloc:
+            return generic_match.group(0)
+    return None
 
 @app.route('/chatbot', methods=['POST'])
 def chatbot_route():
@@ -45,10 +38,12 @@ def chatbot_route():
             return jsonify({'error': 'Empty message', 'chatId': chat_id, 'success': False}), 400
 
         if message_text.lower().startswith('/process_youtube'):
-            video_url = extract_youtube_url(message_text)
+            # Extrae la URL del resto del texto
+            url_part = message_text[len('/process_youtube'):].strip()
+            video_url = extract_youtube_url_simple(url_part)
             if not video_url:
                 return jsonify({
-                    'error': 'Formato inválido. Use: /process_youtube <URL> o /process_youtube<URL>',
+                    'error': 'Formato de URL inválido.',
                     'chatId': chat_id,
                     'success': False
                 }), 400
