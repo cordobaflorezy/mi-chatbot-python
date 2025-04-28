@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
 import os
 import json
 import uuid
@@ -16,25 +16,34 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
 @app.route('/generate-metadata', methods=['POST'])
-def generate_metadata():
+def process_article():
     try:
-        if not request.is_json:
-            return jsonify({"error": "Solo se acepta JSON", "success": False}), 400
+        article_content = ""
+        if 'article_text' in request.form:
+            article_content = request.form['article_text']
+        elif 'article_file' in request.files:
+            article_file = request.files['article_file']
+            if article_file.filename != '':
+                article_content = article_file.read().decode('utf-8')
 
-        data = request.get_json()
-        raw_content = data.get('text', '').strip()
+        if not article_content:
+            return "No se proporcionó texto del artículo ni archivo.", 400
 
-        if not raw_content:
-            return jsonify({"error": "Texto no proporcionado", "success": False}), 400
+        # Generar resumen
+        summary_prompt = f"""Genera un resumen conciso de un párrafo (máximo 150 palabras) para el siguiente artículo:
+{article_content}"""
+        summary_response = model.generate_content(summary_prompt)
+        summary = summary_response.text.strip()
 
-        prompt = f"""Genera un JSON con metadatos para el siguiente artículo:
-1. slug: Un slug único y amigable para SEO (ejemplo: titulo-del-articulo-uuid)
-2. title: Título del artículo (informativo y atractivo)
-3. author: Un autor plausible para este artículo (si no se puede determinar, usa "AI Generated")
+        # Generar metadatos JSON
+        metadata_prompt = f"""Genera un JSON con metadatos para el siguiente artículo:
+1. slug: Un slug único y amigable para SEO
+2. title: Título del artículo
+3. author: Un autor plausible
 4. date: La fecha actual en formato YYYY-MM-DD
-5. excerpt: Un resumen breve y atractivo del artículo (máximo 160 caracteres)
-6. thumbnail: Una ruta de archivo de imagen sugerida para la miniatura (ejemplo: /posts/nombre-del-articulo/miniatura.jpg)
-7. htmlPath: Una ruta de archivo sugerida para el contenido HTML del artículo (ejemplo: /posts/nombre-del-articulo/index.html)
+5. excerpt: Un resumen breve (máximo 160 caracteres)
+6. thumbnail: Ruta de archivo sugerida
+7. htmlPath: Ruta de archivo sugerida
 
 Formato REQUERIDO:
 {{
@@ -48,33 +57,26 @@ Formato REQUERIDO:
 }}
 
 Artículo:
-{raw_content}"""
+{article_content}"""
 
-        response = model.generate_content(prompt)
-        cleaned_response = response.text.strip().replace('```json', '').replace('```', '')
+        metadata_response = model.generate_content(metadata_prompt)
+        cleaned_metadata = metadata_response.text.strip().replace('```json', '').replace('```', '')
 
         try:
-            ai_metadata = json.loads(cleaned_response)
-
-            # Asegurar que la fecha sea la actual
+            ai_metadata = json.loads(cleaned_metadata)
             ai_metadata['date'] = datetime.now().strftime('%Y-%m-%d')
-
-            # Generar slug único basado en el título generado por la IA
             ai_metadata['slug'] = slugify(ai_metadata['title']) + '-' + str(uuid.uuid4())[:6]
-
-            return jsonify({
-                "success": True,
-                "metadata": ai_metadata
-            }), 200
-
+            metadata_json_str = json.dumps(ai_metadata, indent=4)
         except json.JSONDecodeError:
-            return jsonify({"error": "Error al decodificar la respuesta JSON de la IA", "raw_response": cleaned_response, "success": False}), 500
+            return f"Error al decodificar JSON de metadatos: {cleaned_metadata}", 500
+
+        # Crear el contenido del archivo de respuesta (resumen y metadatos JSON)
+        response_content = f"Resumen del artículo:\n{summary}\n\nMetadatos JSON:\n{metadata_json_str}"
+
+        return response_content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
     except Exception as e:
-        return jsonify({
-            "error": f"Error: {str(e)}",
-            "success": False
-        }), 500
+        return f"Error: {str(e)}", 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
