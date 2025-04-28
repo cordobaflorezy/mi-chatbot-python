@@ -21,7 +21,8 @@ POSTS_DIR = os.path.join(BASE_DIR, 'public', 'posts')
 os.makedirs(POSTS_DIR, exist_ok=True)
 
 def process_with_ai(raw_content):
-    prompt = f"""Analiza este artículo y genera:
+    try:
+        prompt = f"""Analiza este artículo y genera:
 1. Título atractivo (máx 60 caracteres)
 2. Categoría principal (salud, belleza, tecnologia, deportes)
 3. Excerpt breve (1 línea, máx 140 caracteres)
@@ -38,13 +39,13 @@ Formato de respuesta JSON:
 Artículo:
 {raw_content}"""
 
-    response = model.generate_content(prompt)
-    return json.loads(response.text)
+        response = model.generate_content(prompt)
+        return json.loads(response.text)
+    except Exception as e:
+        raise RuntimeError(f"Error en IA: {str(e)}")
 
 def generate_html(content):
-    # Procesar contenido primero
     processed_content = html.escape(content['raw_content']).replace('\n', '<br>')
-    
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -69,32 +70,52 @@ def generate_html(content):
 
 @app.route('/auto-article', methods=['POST'])
 def create_auto_article():
-    try:
-        # Paso 1: Recibir contenido crudo
-        raw_content = request.json.get('content', '')
-        if not raw_content:
-            return jsonify({"error": "No content provided"}), 400
+    response_data = {
+        "success": False,
+        "chatId": "unknown",
+        "error": None,
+        "ai_generated": None,
+        "files": None
+    }
 
-        # Paso 2: Procesar con Gemini
+    try:
+        if not request.is_json:
+            response_data["error"] = "Request must be JSON"
+            return jsonify(response_data), 400
+
+        data = request.get_json()
+        response_data["chatId"] = data.get('chatId', 'unknown')
+
+        if 'text' not in data or not data['text'].strip():
+            response_data["error"] = "Campo 'text' requerido"
+            return jsonify(response_data), 400
+
+        raw_content = data['text'].strip()
+        if len(raw_content) < 100:
+            response_data["error"] = "Contenido muy corto (mínimo 100 caracteres)"
+            return jsonify(response_data), 400
+
+        # Procesamiento con IA
         ai_data = process_with_ai(raw_content)
-        
-        # Paso 3: Generar estructura de archivos
-        slug = slugify(ai_data['title']) + '-' + str(uuid.uuid4())[:6]
+
+        # Generar slug único
+        base_slug = slugify(ai_data['title'])
+        unique_id = str(uuid.uuid4())[:6]
+        slug = f"{base_slug}-{unique_id}"
         post_dir = os.path.join(POSTS_DIR, slug)
         os.makedirs(post_dir, exist_ok=True)
 
-        # Paso 4: Crear HTML
+        # Generar HTML
         article_data = {
             **ai_data,
             "raw_content": raw_content,
-            "slug": slug,
-            "date": "2025-01-01"  # Puedes añadir fecha real aquí
+            "slug": slug
         }
         
         with open(os.path.join(post_dir, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(generate_html(article_data))
 
-        # Paso 5: Actualizar JSON
+        # Actualizar JSON
         json_path = os.path.join(POSTS_DIR, f"{ai_data['category']}.json")
         existing_data = []
         
@@ -114,21 +135,27 @@ def create_auto_article():
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(existing_data, f, indent=2, ensure_ascii=False)
 
-        return jsonify({
+        response_data.update({
             "success": True,
             "ai_generated": ai_data,
             "files": {
                 "html": f"/posts/{slug}/index.html",
                 "json": f"{ai_data['category']}.json"
             }
-        }), 201
+        })
+        return jsonify(response_data), 201
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
+        response_data["error"] = str(e)
+        return jsonify(response_data), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'ok', 'version': '1.0'})
+    return jsonify({
+        "status": "ok",
+        "version": "1.0",
+        "posts_count": sum(len(files) for _, _, files in os.walk(POSTS_DIR))
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
