@@ -42,6 +42,9 @@ Artículo:
     return json.loads(response.text)
 
 def generate_html(content):
+    # Procesar contenido primero
+    processed_content = html.escape(content['raw_content']).replace('\n', '<br>')
+    
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -54,7 +57,7 @@ def generate_html(content):
     <article>
         <h1>{html.escape(content['title'])}</h1>
         <div class="content">
-            {html.escape(content['raw_content']).replace('\n', '<br>')}
+            {processed_content}
         </div>
         <div class="meta">
             <span>Categoría: {content['category']}</span>
@@ -122,6 +125,10 @@ def create_auto_article():
 
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok', 'version': '1.0'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
