@@ -15,7 +15,7 @@ app = Flask(__name__)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
-@app.route('/generate-metadata', methods=['POST'])
+@app.route('/process-article', methods=['POST'])
 def process_article():
     try:
         article_content = ""
