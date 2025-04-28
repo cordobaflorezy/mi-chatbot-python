@@ -11,8 +11,8 @@ app = Flask(__name__)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
-@app.route('/generate-title', methods=['POST'])
-def generate_title():
+@app.route('/generate-summary', methods=['POST'])
+def generate_summary():
     try:
         if not request.is_json:
             return jsonify({"error": "Solo se acepta JSON", "success": False}), 400
@@ -23,15 +23,15 @@ def generate_title():
         if not raw_content:
             return jsonify({"error": "Texto no proporcionado", "success": False}), 400
 
-        prompt = f"""Genera un título conciso para el siguiente artículo:
+        prompt = f"""Genera un resumen conciso de un párrafo (máximo 50 palabras) para el siguiente artículo:
 {raw_content}"""
 
         response = model.generate_content(prompt)
-        title = response.text.strip()
+        summary = response.text.strip()
 
         return jsonify({
             "success": True,
-            "title": title
+            "summary": summary
         }), 200
 
     except Exception as e:
