@@ -16,7 +16,7 @@ print(f"Clave de API de Gemini obtenida: {'Sí' if google_api_key else 'No'}")
 if google_api_key:
     genai.configure(api_key=google_api_key)
     try:
-        model_gemini = genai.GenerativeModel('gemini-1.5-flash') # O el modelo que prefieras
+        model_gemini = genai.GenerativeModel('gemini-1.5-flash')
         print("Modelo Gemini inicializado correctamente.")
     except Exception as e:
         model_gemini = None
@@ -44,69 +44,122 @@ def descargar_audio(video_url, output_file):
 
 def transcribir_audio(audio_file):
     try:
-        model = whisper.load_model("large")
+        model = whisper.load_model("base")  # Cambiado a 'base' para menos requisitos de hardware
         result = model.transcribe(audio_file)
         return True, result["text"]
     except Exception as e:
         return False, f"Error al transcribir el audio: {e}"
-    except FileNotFoundError:
-        return False, "Error: El modelo de Whisper no se encontró. Asegúrate de que esté instalado."
 
 # --- Endpoints ---
 @app.route('/process_youtube', methods=['POST'])
 def process_youtube_route():
-    data = request.get_json()
-    video_url = data.get('youtube_url')
-    chat_id = data.get('chatId')
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No se proporcionaron datos JSON', 'success': False}), 400
+            
+        video_url = data.get('youtube_url')
+        chat_id = data.get('chatId')
 
-    if not video_url:
-        return jsonify({'error': 'No se proporcionó la URL de YouTube', 'chatId': chat_id}), 400
+        if not video_url:
+            return jsonify({'error': 'No se proporcionó la URL de YouTube', 'chatId': chat_id, 'success': False}), 400
 
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as tmp_audio_file:
-        audio_file_path = tmp_audio_file.name
-        print(f"Descargando audio de: {video_url} a {audio_file_path}")
-        descarga_exitosa, descarga_resultado = descargar_audio(video_url, audio_file_path)
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as tmp_audio_file:
+            audio_file_path = tmp_audio_file.name
+            print(f"Descargando audio de: {video_url}")
+            descarga_exitosa, descarga_resultado = descargar_audio(video_url, audio_file_path)
 
-        if descarga_exitosa:
-            print(f"Audio descargado exitosamente. Transcribiendo...")
-            transcripcion_exitosa, transcripcion_resultado = transcribir_audio(audio_file_path)
-            if transcripcion_exitosa:
-                print(f"Transcripción completada.")
-                return jsonify({'transcription': transcripcion_resultado, 'chatId': chat_id}), 200
+            if descarga_exitosa:
+                print("Audio descargado exitosamente. Transcribiendo...")
+                transcripcion_exitosa, transcripcion_resultado = transcribir_audio(audio_file_path)
+                if transcripcion_exitosa:
+                    print("Transcripción completada.")
+                    return jsonify({
+                        'transcription': transcripcion_resultado, 
+                        'chatId': chat_id,
+                        'success': True
+                    }), 200
+                else:
+                    print(f"Error en la transcripción: {transcripcion_resultado}")
+                    return jsonify({
+                        'error': f'Error en la transcripción: {transcripcion_resultado}',
+                        'chatId': chat_id,
+                        'success': False
+                    }), 500
             else:
-                print(f"Error en la transcripción: {transcripcion_resultado}")
-                return jsonify({'error': f'Error en la transcripción: {transcripcion_resultado}', 'chatId': chat_id}), 500
+                print(f"Error en la descarga del audio: {descarga_resultado}")
+                return jsonify({
+                    'error': f'Error en la descarga del audio: {descarga_resultado}',
+                    'chatId': chat_id,
+                    'success': False
+                }), 500
+    except Exception as e:
+        print(f"Error inesperado en /process_youtube: {str(e)}")
+        return jsonify({
+            'error': f'Error interno del servidor: {str(e)}',
+            'success': False
+        }), 500
+
+@app.route('/chatbot', methods=['POST'])
+def chatbot_route():
+    """Endpoint específico para integración con Telegram"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No se proporcionaron datos JSON', 'success': False}), 400
+            
+        message_text = data.get('text', '')
+        chat_id = data.get('chatId')
+
+        if not message_text:
+            return jsonify({'error': 'No se proporcionó texto', 'chatId': chat_id, 'success': False}), 400
+
+        # Manejo de comandos de Telegram
+        if message_text.startswith('/process_youtube'):
+            # Extraer la URL del comando
+            parts = message_text.split()
+            if len(parts) < 2:
+                return jsonify({
+                    'error': 'Debes proporcionar una URL de YouTube después del comando',
+                    'chatId': chat_id,
+                    'success': False
+                }), 400
+                
+            video_url = parts[1]
+            # Reutilizamos la función process_youtube_route
+            return process_youtube_route()
+            
+        elif model_gemini:
+            try:
+                response_gemini = model_gemini.generate_content(message_text)
+                response_text = response_gemini.text
+                return jsonify({
+                    'response': response_text, 
+                    'chatId': chat_id,
+                    'success': True
+                }), 200
+            except Exception as e:
+                error_message = f"Error al generar respuesta: {str(e)}"
+                print(error_message)
+                return jsonify({
+                    'error': error_message, 
+                    'chatId': chat_id,
+                    'success': False
+                }), 500
         else:
-            print(f"Error en la descarga del audio: {descarga_resultado}")
-            return jsonify({'error': f'Error en la descarga del audio: {descarga_resultado}', 'chatId': chat_id}), 500
-
-@app.route('/ia', methods=['POST'])
-def ia_route():
-    data = request.get_json()
-    message_text = data.get('text', '')
-    chat_id = data.get('chatId')
-
-    print(f"Mensaje recibido en /ia: '{message_text}', Chat ID: {chat_id}")
-
-    if message_text and model_gemini:
-        try:
-            response_gemini = model_gemini.generate_content(message_text)
-            print(f"Respuesta cruda de Gemini (/ia): {response_gemini}")
-            response_text = response_gemini.text
-            print(f"Texto de la respuesta de Gemini (/ia): '{response_text}'")
-            return jsonify({'response': response_text, 'chatId': chat_id})
-        except Exception as e:
-            error_message = f"Error al llamar a Gemini (/ia): {e}"
+            error_message = "El modelo Gemini no está disponible"
             print(error_message)
-            return jsonify({'error': error_message, 'chatId': chat_id})
-    elif not message_text:
-        error_message = "No se proporcionó ningún mensaje en /ia."
-        print(error_message)
-        return jsonify({'error': error_message, 'chatId': chat_id})
-    else:
-        error_message = "El modelo Gemini no está inicializado (/ia). Verifica la configuración de la clave de API."
-        print(error_message)
-        return jsonify({'error': error_message, 'chatId': chat_id})
+            return jsonify({
+                'error': error_message, 
+                'chatId': chat_id,
+                'success': False
+            }), 503
+    except Exception as e:
+        print(f"Error inesperado en /chatbot: {str(e)}")
+        return jsonify({
+            'error': f'Error interno del servidor: {str(e)}',
+            'success': False
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
